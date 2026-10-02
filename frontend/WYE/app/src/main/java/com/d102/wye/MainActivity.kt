@@ -18,6 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.d102.wye.BuildConfig
 import com.d102.wye.core.app.Constants
 import com.d102.wye.domain.repository.AuthRepository
 import com.d102.wye.presentation.LaunchSplashScreen
@@ -73,11 +74,13 @@ class MainActivity : ComponentActivity() {
                 val isLoggedIn by appEntryViewModel.isLoggedIn.collectAsStateWithLifecycle()
                 val sessionExpired by authRepository.sessionExpired.collectAsStateWithLifecycle(initialValue = false)
                 var isSplashFinished by rememberSaveable { mutableStateOf(false) }
-                val shouldShowSplash = !isSplashFinished || isLoggedIn == null
+                // 테스트용 Debug 빌드는 인증 상태를 기다리지 않고 게스트로 진입한다.
+                val isGuestMode = BuildConfig.DEBUG
+                val shouldShowSplash = !isSplashFinished || (!isGuestMode && isLoggedIn == null)
 
-                LaunchedEffect(isLoggedIn) {
+                LaunchedEffect(isGuestMode, isLoggedIn) {
                     // 로그인 이후에만 FCM 토큰을 서버에 등록해 JWT 헤더가 함께 전송되도록 한다.
-                    if (isLoggedIn == true) {
+                    if (!isGuestMode && isLoggedIn == true) {
                         FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
                             CoroutineScope(Dispatchers.IO).launch {
                                 authRepository.registerFcmToken(token)
@@ -86,8 +89,8 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                LaunchedEffect(isLoggedIn, sessionExpired) {
-                    if (isLoggedIn == false && sessionExpired) {
+                LaunchedEffect(isGuestMode, isLoggedIn, sessionExpired) {
+                    if (!isGuestMode && isLoggedIn == false && sessionExpired) {
                         Toast.makeText(
                             this@MainActivity,
                             Constants.ERROR_SESSION_EXPIRED,
@@ -102,7 +105,8 @@ class MainActivity : ComponentActivity() {
                         onAnimationFinished = { isSplashFinished = true }
                     )
                 } else {
-                    val startDestination = if (isLoggedIn == true) Route.Home.route else Route.Login.route
+                    val startDestination =
+                        if (isGuestMode || isLoggedIn == true) Route.Home.route else Route.Login.route
                     AppScaffold(startDestination = startDestination)
                 }
             }

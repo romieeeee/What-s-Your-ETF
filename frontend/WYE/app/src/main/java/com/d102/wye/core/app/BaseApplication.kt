@@ -38,7 +38,12 @@ class BaseApplication : Application() {
         // Timber 초기화
         Timber.plant(Timber.DebugTree())
 
-        initializeKakaoSdk()
+        // 테스트용 Debug 빌드는 게스트 모드로 바로 진입하므로 카카오 로그인을 초기화하지 않는다.
+        if (BuildConfig.DEBUG) {
+            Timber.d("Kakao SDK initialization skipped in guest test mode.")
+        } else {
+            initializeKakaoSdk()
+        }
     }
 
     /** 카카오 SDK를 초기화한다. */
