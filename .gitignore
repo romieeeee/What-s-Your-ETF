@@ -99,3 +99,5 @@ CLAUDE.md
 
 # Sample data
 sample/
+# Local simulation performance measurements
+frontend/WYE/performance-results/
