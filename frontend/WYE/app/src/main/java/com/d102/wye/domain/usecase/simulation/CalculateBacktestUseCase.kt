@@ -23,7 +23,8 @@ class CalculateBacktestUseCase @Inject constructor() {
         priceHistories: Map<String, EtfPriceHistory>,
         investmentAmount: Long,
         investmentType: InvestmentType,
-        periodMonths: Int
+        periodMonths: Int,
+        referenceDate: LocalDate = LocalDate.now()
     ): Result {
         val startedAtNanos = System.nanoTime()
         Timber.tag(SIMULATION_PERF_TAG).d(
@@ -51,7 +52,9 @@ class CalculateBacktestUseCase @Inject constructor() {
         if (allCommonDates.isEmpty()) return emptyResult("no_common_dates", startedAtNanos)
 
         stageStartedAtNanos = System.nanoTime()
-        val startDate = LocalDate.now().minusMonths(periodMonths.toLong()).toString()
+        val startDate = referenceDate
+            .minusMonths(periodMonths.toLong())
+            .toString()
         val commonDates = allCommonDates.filter { it >= startDate }
 
         if (commonDates.isEmpty()) return emptyResult("no_dates_in_period", startedAtNanos)
