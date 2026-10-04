@@ -27,7 +27,8 @@ enum class BottomNavTab(
     SIMULATION(
         label = "시뮬레이션",
         iconRes = R.drawable.ic_nav_simulation,
-        route = Route.SimulationEntry.route
+        // 성능 개선 작업 중에는 서버 의존 프리셋 화면을 건너뛰고 작성 화면으로 바로 진입한다.
+        route = Route.Simulation.route
     ),
     STRATEGY(
         label = "나의 전략",

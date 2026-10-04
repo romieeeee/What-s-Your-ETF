@@ -133,7 +133,27 @@ private fun SimulationScreenContent(
                     }
                 }
 
-                is UiState.Error -> Unit
+                is UiState.Error -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 24.dp)
+                    ) {
+                        SimulationBanner(
+                            isPortfolioFull = false,
+                            onMakePortfolioClick = { onMakePortfolioClick(emptyList()) }
+                        )
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        Text(
+                            text = "추천 ETF 꾸러미는 서버 연결 후 표시됩니다.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextTertiary
+                        )
+                    }
+                }
 
                 UiState.Idle -> Unit
             }
