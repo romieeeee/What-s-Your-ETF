@@ -19,6 +19,8 @@ import kotlin.math.sin
 /** 성능 측정에서 매번 동일한 결과를 제공하는 Debug 전용 fixture. */
 internal object FakePerformanceData {
 
+    val referenceDate: LocalDate = LocalDate.of(2026, 10, 2)
+
     val etfs = listOf(
         Etf(1, "069500", "KODEX 200", 38_450, 0.82, 315, "MODERATE", false),
         Etf(2, "360750", "TIGER 미국S&P500", 22_130, 0.46, 101, "STABLE", false),
@@ -109,7 +111,7 @@ internal object FakePerformanceData {
         endDate: String? = null,
     ): EtfPriceHistory {
         val end = endDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
-            ?: LocalDate.now()
+            ?: referenceDate
         val start = startDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
             ?: end.minusYears(3)
         val dates = if (start > end) {
