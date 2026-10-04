@@ -10,13 +10,16 @@ import com.d102.wye.domain.model.EtfPriceHistory
 import com.d102.wye.domain.model.Portfolio
 import com.d102.wye.domain.repository.SimulationRepository
 import com.d102.wye.domain.state.InvestmentType
-import java.time.YearMonth
 import javax.inject.Inject
 
 class FakeSimulationRepository @Inject constructor() : SimulationRepository {
 
-    private val priceHistoryCache = mutableMapOf<String, EtfPriceHistory>()
-    private val lastSuccessfulSync = mutableMapOf<String, Long>()
+    private val priceHistoryCache = FakePerformanceData.etfs.associate { etf ->
+        etf.ticker to FakePerformanceData.priceHistory(etf.ticker)
+    }.toMutableMap()
+    private val lastSuccessfulSync = FakePerformanceData.etfs.associate { etf ->
+        etf.ticker to System.currentTimeMillis()
+    }.toMutableMap()
     private val lastCacheAccess = mutableMapOf<String, Long>()
 
     override suspend fun getEtfPriceHistories(
@@ -35,7 +38,7 @@ class FakeSimulationRepository @Inject constructor() : SimulationRepository {
         startDate: String?,
         endDate: String?,
     ): BaseResult<Map<String, EtfDividendHistory>> {
-        val currentMonth = YearMonth.now()
+        val currentMonth = java.time.YearMonth.from(FakePerformanceData.referenceDate)
         val result = tickers.distinct().associateWith { ticker ->
             val detail = FakePerformanceData.detail(ticker)
             EtfDividendHistory(

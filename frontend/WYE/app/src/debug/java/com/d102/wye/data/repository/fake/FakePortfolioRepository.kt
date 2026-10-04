@@ -9,7 +9,6 @@ import com.d102.wye.domain.model.PortfolioIssue
 import com.d102.wye.domain.model.PortfolioListItem
 import com.d102.wye.domain.model.SavePortfolioParams
 import com.d102.wye.domain.repository.PortfolioRepository
-import java.time.LocalDate
 import javax.inject.Inject
 
 class FakePortfolioRepository @Inject constructor() : PortfolioRepository {
@@ -20,7 +19,7 @@ class FakePortfolioRepository @Inject constructor() : PortfolioRepository {
 
     override suspend fun savePortfolio(params: SavePortfolioParams): BaseResult<Unit> {
         val id = nextId++
-        val createdAt = LocalDate.now().toString()
+        val createdAt = FakePerformanceData.referenceDate.toString()
         val etfs = params.etfs.map { item ->
             val detail = FakePerformanceData.detail(item.ticker)
             PortfolioEtf(ticker = item.ticker, name = detail.name)
@@ -75,7 +74,7 @@ class FakePortfolioRepository @Inject constructor() : PortfolioRepository {
         BaseResult.Success(
             listOf(
                 PortfolioIssue(
-                    localDate = LocalDate.now().toString(),
+                    localDate = FakePerformanceData.referenceDate.toString(),
                     title = "성능 테스트 데이터",
                     description = "서버 연결 없이 동일한 포트폴리오 이슈를 반환합니다."
                 )
