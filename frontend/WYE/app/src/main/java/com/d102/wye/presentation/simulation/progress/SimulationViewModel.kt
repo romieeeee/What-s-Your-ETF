@@ -19,6 +19,7 @@ import com.d102.wye.presentation.model.UiState
 import com.d102.wye.presentation.simulation.model.SimulationUiModel
 import com.d102.wye.presentation.simulation.model.toUiModel
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -67,6 +68,9 @@ class SimulationViewModel @Inject constructor(
     private var lastAiReviewKey: AiReviewKey? = null
 
     private var calcJob: Job? = null
+    private var activeCalculationId: Long? = null
+    private var calculationSequence = 0L
+    private var amountInputSequence = 0L
 
     // ─────────────────────────────────────────────────────────────────────────
     // 포트폴리오 CRUD
@@ -156,7 +160,7 @@ class SimulationViewModel @Inject constructor(
                 }
             }
 
-            triggerCalculation()
+            triggerCalculation(trigger = "portfolio_add")
         }
     }
 
@@ -167,7 +171,7 @@ class SimulationViewModel @Inject constructor(
                 portfolioItems = current.portfolioItems.filter { it.ticker != ticker }
             )
         }
-        triggerCalculation()
+        triggerCalculation(trigger = "portfolio_remove")
     }
 
     fun updateItemWeight(ticker: String, newWeight: Int) {
@@ -181,7 +185,7 @@ class SimulationViewModel @Inject constructor(
         }
         val totalWeight = _formState.value.portfolioItems.sumOf { it.weight }
         Timber.d("[Weight] ticker=$ticker | 새 비중=${newWeight}% | 전체 합계=${totalWeight}%")
-        triggerCalculation()
+        triggerCalculation(trigger = "weight")
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -243,17 +247,29 @@ class SimulationViewModel @Inject constructor(
     fun onInvestmentTypeSelected(type: InvestmentType) {
         Timber.d("[Form] 투자 방식 변경 | type=$type")
         _formState.update { it.copy(investmentType = type) }
-        triggerCalculation()
+        triggerCalculation(trigger = "investment_type")
     }
 
     fun onAmountChanged(amount: String) {
+        val inputEventId = ++amountInputSequence
+        val inputAtNanos = System.nanoTime()
+        Timber.tag(SIMULATION_PERF_TAG).d(
+            "amount_input | inputEventId=%d | length=%d | thread=%s",
+            inputEventId,
+            amount.length,
+            Thread.currentThread().name
+        )
         _formState.update { it.copy(investmentAmount = amount) }
-        triggerCalculation()
+        triggerCalculation(
+            trigger = "amount",
+            inputEventId = inputEventId,
+            inputAtNanos = inputAtNanos
+        )
     }
 
     fun onPeriodChanged(period: String) {
         _formState.update { it.copy(investmentPeriod = period) }
-        triggerCalculation()
+        triggerCalculation(trigger = "period")
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -414,75 +430,202 @@ class SimulationViewModel @Inject constructor(
     // 계산 트리거
     // ─────────────────────────────────────────────────────────────────────────
 
-    private fun triggerCalculation() {
-        calcJob?.cancel()
+    private fun triggerCalculation(
+        trigger: String,
+        inputEventId: Long? = null,
+        inputAtNanos: Long? = null
+    ) {
+        val calculationId = ++calculationSequence
+        val scheduledAtNanos = System.nanoTime()
+        val previousCalculationId = activeCalculationId
+        calcJob?.takeIf { it.isActive }?.let { previousJob ->
+            Timber.tag(SIMULATION_PERF_TAG).d(
+                "cancel_requested | calculationId=%s | nextCalculationId=%d | nextTrigger=%s | thread=%s",
+                previousCalculationId?.toString() ?: "none",
+                calculationId,
+                trigger,
+                Thread.currentThread().name
+            )
+            previousJob.cancel()
+        }
+
+        Timber.tag(SIMULATION_PERF_TAG).d(
+            "scheduled | calculationId=%d | trigger=%s | inputEventId=%s | thread=%s",
+            calculationId,
+            trigger,
+            inputEventId?.toString() ?: "none",
+            Thread.currentThread().name
+        )
+        activeCalculationId = calculationId
         calcJob = viewModelScope.launch {
-            delay(300)
+            var phase = "debounce"
+            try {
+                delay(CALCULATION_DEBOUNCE_MILLIS)
 
-            val form = _formState.value
-            val totalWeight = form.portfolioItems.sumOf { it.weight }
-            val amount = (form.investmentAmount.toLongOrNull() ?: 0L) * 10_000L
-            val periodMonths = form.investmentPeriod.toIntOrNull() ?: 0
+                val form = _formState.value
+                val totalWeight = form.portfolioItems.sumOf { it.weight }
+                val amount = (form.investmentAmount.toLongOrNull() ?: 0L) * 10_000L
+                val periodMonths = form.investmentPeriod.toIntOrNull() ?: 0
 
-            if (form.portfolioItems.isEmpty() || amount <= 0L || periodMonths <= 0) {
-                Timber.d("[Calc] 입력 미완성 → Idle")
-                _simulationState.update { UiState.Idle }
-                return@launch
-            }
+                if (form.portfolioItems.isEmpty() || amount <= 0L || periodMonths <= 0) {
+                    Timber.tag(SIMULATION_PERF_TAG).d(
+                        "skipped | calculationId=%d | reason=incomplete_input | elapsedMs=%.3f | thread=%s",
+                        calculationId,
+                        elapsedMillis(scheduledAtNanos),
+                        Thread.currentThread().name
+                    )
+                    Timber.d("[Calc] 입력 미완성 → Idle")
+                    _simulationState.update { UiState.Idle }
+                    return@launch
+                }
 
-            if (totalWeight != 100) {
-                Timber.d("[Calc] 비중 합계 미달 → Loading | totalWeight=$totalWeight%")
+                if (totalWeight != 100) {
+                    Timber.tag(SIMULATION_PERF_TAG).d(
+                        "skipped | calculationId=%d | reason=invalid_weight | totalWeight=%d | elapsedMs=%.3f | thread=%s",
+                        calculationId,
+                        totalWeight,
+                        elapsedMillis(scheduledAtNanos),
+                        Thread.currentThread().name
+                    )
+                    Timber.d("[Calc] 비중 합계 미달 → Loading | totalWeight=$totalWeight%")
+                    _simulationState.update { UiState.Loading }
+                    return@launch
+                }
+
+                val calculationStartedAtNanos = System.nanoTime()
+                Timber.tag(SIMULATION_PERF_TAG).d(
+                    "started | calculationId=%d | trigger=%s | inputEventId=%s | debounceMs=%.3f | etfCount=%d | periodMonths=%d | type=%s | thread=%s",
+                    calculationId,
+                    trigger,
+                    inputEventId?.toString() ?: "none",
+                    elapsedMillis(scheduledAtNanos, calculationStartedAtNanos),
+                    form.portfolioItems.size,
+                    periodMonths,
+                    form.investmentType,
+                    Thread.currentThread().name
+                )
+                Timber.d("[Calc] 계산 시작 | portfolios=${form.portfolioItems.map { "${it.ticker}(${it.weight}%)" }} | amount=$amount | period=${periodMonths}개월 | type=${form.investmentType}")
                 _simulationState.update { UiState.Loading }
-                return@launch
-            }
 
-            Timber.d("[Calc] 계산 시작 | portfolios=${form.portfolioItems.map { "${it.ticker}(${it.weight}%)" }} | amount=$amount | period=${periodMonths}개월 | type=${form.investmentType}")
-            _simulationState.update { UiState.Loading }
-
-            val tickers = form.portfolioItems.map { it.ticker }
-            val cachedHistories = simulationRepository.getCachedPriceHistories(tickers)
-            Timber.d("[DB] 캐시 조회 완료 | 데이터 건수=${cachedHistories.mapValues { it.value.content.size }}")
-
-            val fundamentalsMap = form.portfolioItems.associate { item ->
-                item.ticker to EtfFundamentals(
-                    ticker = item.ticker,
-                    per = item.per,
-                    pbr = item.pbr,
-                    roe = item.roe,
-                    annualDividendYield = 0.0
+                phase = "cache_read"
+                var stageStartedAtNanos = System.nanoTime()
+                val tickers = form.portfolioItems.map { it.ticker }
+                val cachedHistories = simulationRepository.getCachedPriceHistories(tickers)
+                Timber.tag(SIMULATION_PERF_TAG).d(
+                    "stage_finished | calculationId=%d | stage=cache_read | durationMs=%.3f | pricePointCount=%d | thread=%s",
+                    calculationId,
+                    elapsedMillis(stageStartedAtNanos),
+                    cachedHistories.values.sumOf { it.content.size },
+                    Thread.currentThread().name
                 )
-            }
+                Timber.d("[DB] 캐시 조회 완료 | 데이터 건수=${cachedHistories.mapValues { it.value.content.size }}")
 
-            // 섹터 가중평균
-            val sectorWeights = calcWeightedSectors(form.portfolioItems)
-
-            when (val result = runSimulation(
-                RunSimulationUseCase.Params(
-                    portfolios = form.portfolioItems.toDomain(),
-                    investmentAmount = amount,
-                    investmentType = form.investmentType,
-                    periodMonths = periodMonths,
-                    priceHistories = cachedHistories,
-                    fundamentalsMap = fundamentalsMap
+                phase = "prepare_inputs"
+                stageStartedAtNanos = System.nanoTime()
+                val fundamentalsMap = form.portfolioItems.associate { item ->
+                    item.ticker to EtfFundamentals(
+                        ticker = item.ticker,
+                        per = item.per,
+                        pbr = item.pbr,
+                        roe = item.roe,
+                        annualDividendYield = 0.0
+                    )
+                }
+                val sectorWeights = calcWeightedSectors(form.portfolioItems)
+                val portfolios = form.portfolioItems.toDomain()
+                Timber.tag(SIMULATION_PERF_TAG).d(
+                    "stage_finished | calculationId=%d | stage=prepare_inputs | durationMs=%.3f | thread=%s",
+                    calculationId,
+                    elapsedMillis(stageStartedAtNanos),
+                    Thread.currentThread().name
                 )
-            )) {
-                is BaseResult.Success -> {
-                    Timber.d("[Calc] 계산 성공 | estimatedFinalValue=${result.data.estimatedFinalValue} | totalReturn=${result.data.totalReturn}%")
-                    _simulationState.update {
-                        UiState.Success(result.data.toUiModel(form.investmentType, sectorWeights))
+
+                phase = "domain_calculation"
+                stageStartedAtNanos = System.nanoTime()
+                when (val result = runSimulation(
+                    RunSimulationUseCase.Params(
+                        portfolios = portfolios,
+                        investmentAmount = amount,
+                        investmentType = form.investmentType,
+                        periodMonths = periodMonths,
+                        priceHistories = cachedHistories,
+                        fundamentalsMap = fundamentalsMap
+                    )
+                )) {
+                    is BaseResult.Success -> {
+                        Timber.tag(SIMULATION_PERF_TAG).d(
+                            "stage_finished | calculationId=%d | stage=domain_calculation | durationMs=%.3f | outputPointCount=%d | thread=%s",
+                            calculationId,
+                            elapsedMillis(stageStartedAtNanos),
+                            result.data.backtestPoints.size,
+                            Thread.currentThread().name
+                        )
+                        Timber.d("[Calc] 계산 성공 | estimatedFinalValue=${result.data.estimatedFinalValue} | totalReturn=${result.data.totalReturn}%")
+
+                        phase = "ui_mapping"
+                        stageStartedAtNanos = System.nanoTime()
+                        val uiModel = result.data.toUiModel(form.investmentType, sectorWeights)
+                        val uiMappingFinishedAtNanos = System.nanoTime()
+                        Timber.tag(SIMULATION_PERF_TAG).d(
+                            "stage_finished | calculationId=%d | stage=ui_mapping | durationMs=%.3f | thread=%s",
+                            calculationId,
+                            elapsedMillis(stageStartedAtNanos, uiMappingFinishedAtNanos),
+                            Thread.currentThread().name
+                        )
+
+                        phase = "state_update"
+                        _simulationState.update { UiState.Success(uiModel) }
+                        val finishedAtNanos = System.nanoTime()
+                        Timber.tag(SIMULATION_PERF_TAG).d(
+                            "finished | calculationId=%d | status=success | calculationMs=%.3f | triggerToSuccessMs=%.3f | inputToSuccessMs=%s | thread=%s",
+                            calculationId,
+                            elapsedMillis(calculationStartedAtNanos, finishedAtNanos),
+                            elapsedMillis(scheduledAtNanos, finishedAtNanos),
+                            inputAtNanos?.let { "%.3f".format(elapsedMillis(it, finishedAtNanos)) } ?: "none",
+                            Thread.currentThread().name
+                        )
+
+                        if (form.isOverlayEnabled) {
+                            fetchMyDataOverlay(periodMonths)
+                        }
                     }
 
-                    if (form.isOverlayEnabled) {
-                        fetchMyDataOverlay(periodMonths)
+                    is BaseResult.Error -> {
+                        val finishedAtNanos = System.nanoTime()
+                        Timber.tag(SIMULATION_PERF_TAG).d(
+                            "finished | calculationId=%d | status=error | phase=%s | calculationMs=%.3f | triggerToFinishMs=%.3f | thread=%s",
+                            calculationId,
+                            phase,
+                            elapsedMillis(calculationStartedAtNanos, finishedAtNanos),
+                            elapsedMillis(scheduledAtNanos, finishedAtNanos),
+                            Thread.currentThread().name
+                        )
+                        Timber.e("[Calc] 계산 실패 | ${result.error.message}")
+                        _simulationState.update { UiState.Error(result.error.message) }
                     }
                 }
-
-                is BaseResult.Error -> {
-                    Timber.e("[Calc] 계산 실패 | ${result.error.message}")
-                    _simulationState.update { UiState.Error(result.error.message) }
-                }
+            } catch (e: CancellationException) {
+                Timber.tag(SIMULATION_PERF_TAG).d(
+                    "cancelled | calculationId=%d | phase=%s | elapsedMs=%.3f | thread=%s",
+                    calculationId,
+                    phase,
+                    elapsedMillis(scheduledAtNanos),
+                    Thread.currentThread().name
+                )
+                throw e
             }
         }
+    }
+
+    private fun elapsedMillis(
+        startedAtNanos: Long,
+        finishedAtNanos: Long = System.nanoTime()
+    ): Double = (finishedAtNanos - startedAtNanos) / NANOS_PER_MILLISECOND
+
+    private companion object {
+        const val SIMULATION_PERF_TAG = "SimulationPerf"
+        const val CALCULATION_DEBOUNCE_MILLIS = 300L
+        const val NANOS_PER_MILLISECOND = 1_000_000.0
     }
 }
 

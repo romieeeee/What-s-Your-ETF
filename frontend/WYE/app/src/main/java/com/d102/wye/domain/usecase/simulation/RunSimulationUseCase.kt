@@ -8,6 +8,7 @@ import com.d102.wye.domain.model.Portfolio
 import com.d102.wye.domain.model.SimulationResult
 import com.d102.wye.domain.state.InvestmentType
 import javax.inject.Inject
+import timber.log.Timber
 
 class RunSimulationUseCase @Inject constructor(
     private val calculateBacktest: CalculateBacktestUseCase,
@@ -26,12 +27,19 @@ class RunSimulationUseCase @Inject constructor(
     )
 
     suspend operator fun invoke(params: Params): BaseResult<SimulationResult> {
+        val startedAtNanos = System.nanoTime()
         if (params.priceHistories.isEmpty()) {
+            Timber.tag(SIMULATION_PERF_TAG).d(
+                "use_case_finished | status=empty_price_history | durationMs=%.3f | thread=%s",
+                elapsedMillis(startedAtNanos),
+                Thread.currentThread().name
+            )
             return BaseResult.Error(
                 ApiError(code = -1, message = "가격 이력 데이터가 없습니다")
             )
         }
 
+        var stageStartedAtNanos = System.nanoTime()
         val backtestResult = calculateBacktest(
             portfolios = params.portfolios,
             priceHistories = params.priceHistories,
@@ -39,14 +47,26 @@ class RunSimulationUseCase @Inject constructor(
             investmentType = params.investmentType,
             periodMonths = params.periodMonths
         )
+        Timber.tag(SIMULATION_PERF_TAG).d(
+            "use_case_stage_finished | stage=backtest | durationMs=%.3f | outputPointCount=%d | thread=%s",
+            elapsedMillis(stageStartedAtNanos),
+            backtestResult.points.size,
+            Thread.currentThread().name
+        )
 
         // per/pbr/roe 가중평균 계산
+        stageStartedAtNanos = System.nanoTime()
         val fundamentals = calculateWeightedFundamentals(
             portfolios = params.portfolios,
             fundamentalsMap = params.fundamentalsMap
         )
+        Timber.tag(SIMULATION_PERF_TAG).d(
+            "use_case_stage_finished | stage=weighted_fundamentals | durationMs=%.3f | thread=%s",
+            elapsedMillis(stageStartedAtNanos),
+            Thread.currentThread().name
+        )
 
-        return BaseResult.Success(
+        val result = BaseResult.Success(
             SimulationResult(
                 backtestPoints = backtestResult.points,
                 fundamentals = fundamentals,
@@ -57,5 +77,19 @@ class RunSimulationUseCase @Inject constructor(
                 totalInvestment = backtestResult.totalInvestment
             )
         )
+        Timber.tag(SIMULATION_PERF_TAG).d(
+            "use_case_finished | status=success | durationMs=%.3f | thread=%s",
+            elapsedMillis(startedAtNanos),
+            Thread.currentThread().name
+        )
+        return result
+    }
+
+    private fun elapsedMillis(startedAtNanos: Long): Double =
+        (System.nanoTime() - startedAtNanos) / NANOS_PER_MILLISECOND
+
+    private companion object {
+        const val SIMULATION_PERF_TAG = "SimulationPerf"
+        const val NANOS_PER_MILLISECOND = 1_000_000.0
     }
 }

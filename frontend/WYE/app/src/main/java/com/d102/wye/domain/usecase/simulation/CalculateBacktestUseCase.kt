@@ -7,6 +7,7 @@ import com.d102.wye.domain.state.InvestmentType
 import java.time.LocalDate
 import javax.inject.Inject
 import kotlin.math.roundToLong
+import timber.log.Timber
 
 class CalculateBacktestUseCase @Inject constructor() {
 
@@ -24,24 +25,49 @@ class CalculateBacktestUseCase @Inject constructor() {
         investmentType: InvestmentType,
         periodMonths: Int
     ): Result {
+        val startedAtNanos = System.nanoTime()
+        Timber.tag(SIMULATION_PERF_TAG).d(
+            "backtest_started | etfCount=%d | inputPointCount=%d | periodMonths=%d | type=%s | thread=%s",
+            priceHistories.size,
+            priceHistories.values.sumOf { it.content.size },
+            periodMonths,
+            investmentType,
+            Thread.currentThread().name
+        )
+
+        var stageStartedAtNanos = System.nanoTime()
         val allCommonDates: List<String> = priceHistories.values
             .map { it.content.map { p -> p.date }.toSet() }
             .reduceOrNull { acc, set -> acc.intersect(set) }
             ?.sorted()
-            ?: return Result(emptyList(), 0L, 0.0, 0L)
+            ?: return emptyResult("missing_history", startedAtNanos)
+        Timber.tag(SIMULATION_PERF_TAG).d(
+            "backtest_stage_finished | stage=date_intersection | durationMs=%.3f | commonDateCount=%d | thread=%s",
+            elapsedMillis(stageStartedAtNanos),
+            allCommonDates.size,
+            Thread.currentThread().name
+        )
 
-        if (allCommonDates.isEmpty()) return Result(emptyList(), 0L, 0.0, 0L)
+        if (allCommonDates.isEmpty()) return emptyResult("no_common_dates", startedAtNanos)
 
+        stageStartedAtNanos = System.nanoTime()
         val startDate = LocalDate.now().minusMonths(periodMonths.toLong()).toString()
         val commonDates = allCommonDates.filter { it >= startDate }
 
-        if (commonDates.isEmpty()) return Result(emptyList(), 0L, 0.0, 0L)
+        if (commonDates.isEmpty()) return emptyResult("no_dates_in_period", startedAtNanos)
 
         val priceMap: Map<String, Map<String, Double>> =
             priceHistories.mapValues { (_, history) ->
                 history.content.associate { it.date to it.stockPrice.toDouble() }
             }
+        Timber.tag(SIMULATION_PERF_TAG).d(
+            "backtest_stage_finished | stage=filter_and_price_map | durationMs=%.3f | filteredDateCount=%d | thread=%s",
+            elapsedMillis(stageStartedAtNanos),
+            commonDates.size,
+            Thread.currentThread().name
+        )
 
+        stageStartedAtNanos = System.nanoTime()
         val result = when (investmentType) {
             InvestmentType.REGULAR_SAVING -> calcInstallment(
                 portfolios, commonDates, priceMap, investmentAmount, periodMonths
@@ -50,9 +76,41 @@ class CalculateBacktestUseCase @Inject constructor() {
                 portfolios, commonDates, priceMap, investmentAmount
             )
         }
+        Timber.tag(SIMULATION_PERF_TAG).d(
+            "backtest_stage_finished | stage=calculate | durationMs=%.3f | rawPointCount=%d | thread=%s",
+            elapsedMillis(stageStartedAtNanos),
+            result.points.size,
+            Thread.currentThread().name
+        )
 
-        return result.copy(points = downsample(result.points, 120))
+        stageStartedAtNanos = System.nanoTime()
+        val downsampledResult = result.copy(points = downsample(result.points, MAX_CHART_POINT_COUNT))
+        Timber.tag(SIMULATION_PERF_TAG).d(
+            "backtest_stage_finished | stage=downsample | durationMs=%.3f | outputPointCount=%d | thread=%s",
+            elapsedMillis(stageStartedAtNanos),
+            downsampledResult.points.size,
+            Thread.currentThread().name
+        )
+        Timber.tag(SIMULATION_PERF_TAG).d(
+            "backtest_finished | status=success | durationMs=%.3f | thread=%s",
+            elapsedMillis(startedAtNanos),
+            Thread.currentThread().name
+        )
+        return downsampledResult
     }
+
+    private fun emptyResult(reason: String, startedAtNanos: Long): Result {
+        Timber.tag(SIMULATION_PERF_TAG).d(
+            "backtest_finished | status=empty | reason=%s | durationMs=%.3f | thread=%s",
+            reason,
+            elapsedMillis(startedAtNanos),
+            Thread.currentThread().name
+        )
+        return Result(emptyList(), 0L, 0.0, 0L)
+    }
+
+    private fun elapsedMillis(startedAtNanos: Long): Double =
+        (System.nanoTime() - startedAtNanos) / NANOS_PER_MILLISECOND
 
     /**
      * 적립형
@@ -208,6 +266,12 @@ class CalculateBacktestUseCase @Inject constructor() {
             totalReturn = finalReturn,
             totalInvestment = initialAmount
         )
+    }
+
+    private companion object {
+        const val SIMULATION_PERF_TAG = "SimulationPerf"
+        const val MAX_CHART_POINT_COUNT = 120
+        const val NANOS_PER_MILLISECOND = 1_000_000.0
     }
 }
 
