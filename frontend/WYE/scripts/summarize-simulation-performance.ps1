@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)]
     [string]$RawLogPath,
 
@@ -91,7 +91,7 @@ $currentBatch = $null
 $currentIteration = $null
 
 foreach ($line in Get-Content -LiteralPath $resolvedRawLogPath) {
-    if ($line -notmatch '^(?<timestamp>\d+\.\d+)\s+(?<pid>\d+)\s+(?<tid>\d+)\s+(?<level>[A-Z])\s+(?<tag>[^:]+):\s*(?<message>.*)$') {
+    if ($line -notmatch '^\s*(?<timestamp>\d+\.\d+)\s+(?<pid>\d+)\s+(?<tid>\d+)\s+(?<level>[A-Z])\s+(?<tag>[^:]+):\s*(?<message>.*)$') {
         continue
     }
 
@@ -134,6 +134,34 @@ foreach ($line in Get-Content -LiteralPath $resolvedRawLogPath) {
     if ($event -eq "scenario_iteration" -and $fields.phase -eq "finished") {
         $currentBatch = $null
         $currentIteration = $null
+    }
+}
+
+# Logcat can interleave records emitted from the instrumentation and main threads.
+# Reattach calculation-scoped events to the iteration where that calculation was scheduled
+# instead of relying only on the surrounding scenario marker order.
+$iterationByCalculationId = @{}
+foreach ($record in $records) {
+    if (
+        $record.event -eq "scheduled" -and
+        -not [string]::IsNullOrWhiteSpace($record.calculationId) -and
+        -not [string]::IsNullOrWhiteSpace($record.batch) -and
+        -not [string]::IsNullOrWhiteSpace($record.iteration)
+    ) {
+        $iterationByCalculationId[$record.calculationId] = @{
+            batch = $record.batch
+            iteration = $record.iteration
+        }
+    }
+}
+foreach ($record in $records) {
+    if (
+        -not [string]::IsNullOrWhiteSpace($record.calculationId) -and
+        $iterationByCalculationId.ContainsKey($record.calculationId)
+    ) {
+        $owner = $iterationByCalculationId[$record.calculationId]
+        $record.batch = $owner.batch
+        $record.iteration = $owner.iteration
     }
 }
 

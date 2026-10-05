@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)]
     [ValidateRange(0, 5000)]
     [int]$InputIntervalMillis,
@@ -17,6 +17,25 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+$javaHomeCandidates = @(
+    $env:JAVA_HOME
+    $env:ANDROID_STUDIO_JDK
+    (Join-Path ${env:ProgramFiles} "Android\Android Studio\jbr")
+    (Join-Path $env:LOCALAPPDATA "Programs\Android Studio\jbr")
+) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
+$resolvedJavaHome = $javaHomeCandidates |
+    Where-Object { Test-Path -LiteralPath (Join-Path $_ "bin\java.exe") } |
+    Select-Object -First 1
+if ([string]::IsNullOrWhiteSpace($resolvedJavaHome)) {
+    throw "A valid JDK was not found. Set JAVA_HOME or install Android Studio with its bundled JBR."
+}
+if ($env:JAVA_HOME -ne $resolvedJavaHome) {
+    Write-Host "Using Java from Android Studio JBR: $resolvedJavaHome"
+}
+$env:JAVA_HOME = $resolvedJavaHome
+$javaExecutable = Join-Path $resolvedJavaHome "bin\java.exe"
+$javaVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($javaExecutable).ProductVersion
 
 $wyeRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\.."))
@@ -75,6 +94,8 @@ $metadata = [ordered]@{
     branch = $branchName
     workingTreeDirty = $dirtyFiles.Count -gt 0
     buildVariant = "debug"
+    javaHome = $resolvedJavaHome
+    javaVersion = $javaVersion
     inputIntervalMillis = $InputIntervalMillis
     warmupCount = $WarmupCount
     measurementCount = $MeasurementCount
@@ -92,14 +113,7 @@ $metadata = [ordered]@{
 $metadata | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $metadataPath -Encoding utf8
 
 & $adbPath @deviceArgs logcat -c
-$logcatArguments = @($deviceArgs + @("logcat", "-v", "epoch", "SimulationPerf:D", "*:S"))
-$logcatProcess = Start-Process `
-    -FilePath $adbPath `
-    -ArgumentList $logcatArguments `
-    -RedirectStandardOutput $rawLogPath `
-    -RedirectStandardError $logcatErrorPath `
-    -WindowStyle Hidden `
-    -PassThru
+$logcatArguments = @($deviceArgs + @("logcat", "-d", "-v", "epoch", "SimulationPerf:D", "*:S"))
 
 $gradleExitCode = -1
 try {
@@ -121,10 +135,8 @@ try {
         Pop-Location
     }
 } finally {
-    if (-not $logcatProcess.HasExited) {
-        Stop-Process -Id $logcatProcess.Id
-        $logcatProcess.WaitForExit()
-    }
+    & $adbPath @logcatArguments 2> $logcatErrorPath |
+        Set-Content -LiteralPath $rawLogPath -Encoding utf8
 
     $metadata.gradleExitCode = $gradleExitCode
     $metadata.status = if ($gradleExitCode -eq 0) { "test_passed" } else { "test_failed" }

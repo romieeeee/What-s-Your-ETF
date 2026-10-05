@@ -2,7 +2,7 @@
 
 ## 현재 상태
 
-공식 Baseline을 반복 수집하기 위한 실행·검증·집계 자동화를 구성했다. 실제 측정값은 UI에서 관찰한 대표 입력 간격을 확정한 뒤 기록한다.
+공식 Baseline을 반복 수집하기 위한 실행·검증·집계 자동화를 구성했다. 실제 UI 입력을 3회 관찰해 대표 입력 간격을 `227ms`로 확정했다.
 
 ## 측정 명령
 
@@ -11,7 +11,7 @@
 ```powershell
 cd frontend/WYE
 ./scripts/run-simulation-baseline.ps1 `
-  -InputIntervalMillis <UI에서 관찰한 대표값> `
+  -InputIntervalMillis 227 `
   -WarmupCount 5 `
   -MeasurementCount 20
 ```
@@ -25,6 +25,50 @@ cd frontend/WYE
 5. 원본 로그, 전체 이벤트 CSV, JSON/Markdown 요약을 저장한다.
 
 커밋되지 않은 변경이 있으면 기본적으로 실행을 중단한다. 조사 목적으로만 실행할 때는 `-AllowDirty`를 명시할 수 있지만, 그 결과를 공식 Before/After 수치로 사용하지 않는다.
+
+## 공식 Before Baseline
+
+2026-10-05에 `baseline-20261005-213742`를 공식 Before Baseline으로 수집했다.
+
+| 항목 | 값 |
+|---|---|
+| commit SHA | `ea2604860d5c9a561bef46e9ddbf7027729188a2` |
+| branch | `perf/simulation-baseline-results` |
+| working tree | clean |
+| build variant | Debug |
+| 기기 | Pixel 7 AVD (`sdk_gphone64_x86_64`) |
+| Android | 15 / API 35 |
+| Java | Android Studio JBR `21.0.6.0` |
+| 입력 간격 | `227ms` |
+| 반복 | warm-up 5회, 본 측정 20회 |
+
+원자료 903행과 자동 집계 결과를 대조했다. warm-up `5/5`, 본 측정 `20/20`이 완료됐고 각 본 측정 회차에 성공 결과가 정확히 하나씩 연결됐다. 취소 요청과 취소 완료는 각각 80건이며 검증 오류는 없다.
+
+### 핵심 통계
+
+| 지표 | median | min | max | range |
+|---|---:|---:|---:|---:|
+| 시나리오 전체 | 1249.458ms | 1240.994ms | 1356.527ms | 115.533ms |
+| 마지막 입력 → 상태 갱신 | 323.191ms | 317.396ms | 409.599ms | 92.203ms |
+| 계산 | 19.248ms | 13.338ms | 91.181ms | 77.843ms |
+| 취소 요청 → 종료 | 0ms | 0ms | 15ms | 15ms |
+
+### 단계별 median
+
+| 단계 | median |
+|---|---:|
+| cache read | 0.124ms |
+| prepare inputs | 0.214ms |
+| date intersection | 3.528ms |
+| filter and price map | 2.016ms |
+| calculate | 2.936ms |
+| downsample | 0.183ms |
+| backtest | 11.586ms |
+| weighted fundamentals | 0.064ms |
+| domain calculation | 13.438ms |
+| UI mapping | 0.395ms |
+
+마지막 입력부터 상태 갱신까지의 `323.191ms` 중 계산 중앙값은 `19.248ms`다. 현재 수치만 보면 체감 대기의 대부분은 `300ms` debounce와 그 이후 상태 전달 구간에서 발생한다. 다만 계산 최대값이 `91.181ms`까지 증가한 원인은 수치만으로 확정하지 않고 trace에서 스레드 점유와 호출 구간을 확인한다.
 
 ## 산출물
 
@@ -50,9 +94,9 @@ cd frontend/WYE
 
 ## 공식 측정 전 남은 조건
 
-- [ ] 실제 UI 입력 간격을 3회 관찰하고 대표값 확정
-- [ ] 자동화 변경을 커밋해 Before SHA 고정
-- [ ] 동일 에뮬레이터/API Level에서 warm-up 5회, 본 측정 20회 이상 실행
-- [ ] 원자료와 요약값 대조
+- [x] 실제 UI 입력 간격을 3회 관찰하고 대표값 `227ms` 확정
+- [x] 자동화 변경을 커밋해 Before SHA `ea2604860d5c9a561bef46e9ddbf7027729188a2` 고정
+- [x] 동일 에뮬레이터/API Level에서 warm-up 5회, 본 측정 20회 실행
+- [x] 원자료 903행과 요약값 대조
 - [ ] 진단용 trace로 가장 비싼 단계와 thread 점유 확인
 - [ ] 첫 번째 가설 유지 또는 기각 근거 기록
