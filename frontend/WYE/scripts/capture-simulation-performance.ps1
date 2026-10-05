@@ -17,7 +17,7 @@ $adbPath = if ($adbCommand) {
 }
 
 if (-not (Test-Path -LiteralPath $adbPath)) {
-    throw "adb를 찾을 수 없습니다: $adbPath"
+    throw "adb was not found: $adbPath"
 }
 
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
@@ -34,23 +34,11 @@ $deviceArgs = if ([string]::IsNullOrWhiteSpace($DeviceSerial)) { @() } else { @(
 
 & $adbPath @deviceArgs logcat -c
 
-$logcatArgs = @($deviceArgs + @("logcat", "-v", "epoch", "SimulationPerf:D", "*:S"))
-$logcatProcess = Start-Process `
-    -FilePath $adbPath `
-    -ArgumentList $logcatArgs `
-    -RedirectStandardOutput $rawPath `
-    -NoNewWindow `
-    -PassThru
+Write-Host "Capturing SimulationPerf logs for $DurationSeconds seconds."
+Start-Sleep -Seconds $DurationSeconds
 
-try {
-    Write-Host "SimulationPerf 로그를 $DurationSeconds 초 동안 수집합니다."
-    Start-Sleep -Seconds $DurationSeconds
-} finally {
-    if (-not $logcatProcess.HasExited) {
-        Stop-Process -Id $logcatProcess.Id
-        $logcatProcess.WaitForExit()
-    }
-}
+$logcatArgs = @($deviceArgs + @("logcat", "-d", "-v", "epoch", "SimulationPerf:D", "*:S"))
+& $adbPath @logcatArgs | Set-Content -LiteralPath $rawPath -Encoding utf8
 
 $records = Get-Content -LiteralPath $rawPath | ForEach-Object {
     if ($_ -match '^(?<timestamp>\d+\.\d+)\s+(?<pid>\d+)\s+(?<tid>\d+)\s+(?<level>[A-Z])\s+(?<tag>[^:]+):\s*(?<message>.*)$') {
@@ -69,5 +57,5 @@ $records = Get-Content -LiteralPath $rawPath | ForEach-Object {
 
 $records | Export-Csv -LiteralPath $csvPath -NoTypeInformation -Encoding utf8
 
-Write-Host "원본 로그: $rawPath"
-Write-Host "CSV 로그:  $csvPath"
+Write-Host "Raw log: $rawPath"
+Write-Host "CSV log: $csvPath"
