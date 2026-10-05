@@ -1,5 +1,6 @@
 package com.d102.wye.performance
 
+import android.os.Debug
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.d102.wye.data.repository.fake.FakePerformanceData
@@ -26,6 +27,7 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import timber.log.Timber
+import java.io.File
 
 /** 실제 Android runtime에서 동일한 ViewModel 입력을 반복하는 측정용 harness. */
 @RunWith(AndroidJUnit4::class)
@@ -44,6 +46,8 @@ class SimulationPerformanceInstrumentedTest {
         val warmupCount = arguments.getString(ARG_WARMUP_COUNT)?.toIntOrNull() ?: 5
         val measurementCount = arguments.getString(ARG_MEASUREMENT_COUNT)?.toIntOrNull() ?: 20
         val runId = arguments.getString(ARG_RUN_ID) ?: "manual"
+        val captureMethodTrace = arguments.getString(ARG_CAPTURE_METHOD_TRACE) == "true"
+        val traceFileName = arguments.getString(ARG_TRACE_FILE_NAME) ?: "$runId.trace"
         val viewModel = createConfiguredViewModel()
         val driver = SimulationAmountInputDriver()
 
@@ -63,14 +67,30 @@ class SimulationPerformanceInstrumentedTest {
             viewModel = viewModel,
             driver = driver
         )
-        runBatch(
-            batch = "measurement",
-            count = measurementCount,
-            runId = runId,
-            inputIntervalMillis = inputIntervalMillis,
-            viewModel = viewModel,
-            driver = driver
-        )
+        if (captureMethodTrace) {
+            captureMeasurementTrace(
+                traceFileName = traceFileName,
+                block = {
+                    runBatch(
+                        batch = "measurement",
+                        count = measurementCount,
+                        runId = runId,
+                        inputIntervalMillis = inputIntervalMillis,
+                        viewModel = viewModel,
+                        driver = driver
+                    )
+                }
+            )
+        } else {
+            runBatch(
+                batch = "measurement",
+                count = measurementCount,
+                runId = runId,
+                inputIntervalMillis = inputIntervalMillis,
+                viewModel = viewModel,
+                driver = driver
+            )
+        }
 
         Timber.tag(PERFORMANCE_TAG).d(
             "scenario_run | phase=finished | runId=%s",
@@ -78,6 +98,44 @@ class SimulationPerformanceInstrumentedTest {
         )
 
         assertTrue(viewModel.simulationState.value is UiState.Success)
+    }
+
+    private suspend fun captureMeasurementTrace(
+        traceFileName: String,
+        block: suspend () -> Unit,
+    ) {
+        require(File(traceFileName).name == traceFileName) {
+            "$ARG_TRACE_FILE_NAME must be a file name without directories."
+        }
+        require(traceFileName.endsWith(TRACE_FILE_EXTENSION)) {
+            "$ARG_TRACE_FILE_NAME must end with $TRACE_FILE_EXTENSION."
+        }
+
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val traceDirectory = context.getExternalFilesDir(null)
+            ?: error("External files directory is unavailable.")
+        val traceFile = File(traceDirectory, traceFileName)
+
+        Timber.tag(PERFORMANCE_TAG).d(
+            "method_trace | phase=started | file=%s | intervalUs=%d",
+            traceFile.absolutePath,
+            TRACE_SAMPLE_INTERVAL_MICROS
+        )
+        Debug.startMethodTracingSampling(
+            traceFile.absolutePath,
+            TRACE_BUFFER_SIZE_BYTES,
+            TRACE_SAMPLE_INTERVAL_MICROS
+        )
+        try {
+            block()
+        } finally {
+            Debug.stopMethodTracing()
+        }
+        Timber.tag(PERFORMANCE_TAG).d(
+            "method_trace | phase=finished | file=%s | bytes=%d",
+            traceFile.absolutePath,
+            traceFile.length()
+        )
     }
 
     private suspend fun runBatch(
@@ -184,8 +242,13 @@ class SimulationPerformanceInstrumentedTest {
         const val ARG_WARMUP_COUNT = "warmupCount"
         const val ARG_MEASUREMENT_COUNT = "measurementCount"
         const val ARG_RUN_ID = "runId"
+        const val ARG_CAPTURE_METHOD_TRACE = "captureMethodTrace"
+        const val ARG_TRACE_FILE_NAME = "traceFileName"
         const val DEBOUNCE_SETTLE_MILLIS = 350L
         const val RESULT_TIMEOUT_MILLIS = 10_000L
         const val NANOS_PER_MILLISECOND = 1_000_000.0
+        const val TRACE_BUFFER_SIZE_BYTES = 32 * 1024 * 1024
+        const val TRACE_SAMPLE_INTERVAL_MICROS = 1_000
+        const val TRACE_FILE_EXTENSION = ".trace"
     }
 }
