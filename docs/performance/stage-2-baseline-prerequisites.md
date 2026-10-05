@@ -82,7 +82,7 @@ Debug Fake Repository는 실행 날짜와 관계없이 위 기준일을 사용�
 - [x] 동일 결과 및 최신 입력 우선 처리 테스트
 - [x] 원본 로그와 CSV 저장 스크립트
 - [x] 실제 UI 입력 간격 3회 관찰 및 대표값 `227ms` 결정
-- [ ] 사전 작업 commit SHA를 Before SHA로 기록
-- [ ] 에뮬레이터/API Level/build variant를 측정 보고서에 기록
+- [x] 사전 작업 commit SHA `ea2604860d5c9a561bef46e9ddbf7027729188a2`를 Before SHA로 기록
+- [x] Pixel 7 AVD/API 35/Debug 환경을 측정 보고서에 기록
 
 마지막 세 항목을 기록한 뒤 3단계 Baseline 측정을 시작한다.
