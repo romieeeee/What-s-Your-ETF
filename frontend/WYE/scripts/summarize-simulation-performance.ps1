@@ -137,6 +137,34 @@ foreach ($line in Get-Content -LiteralPath $resolvedRawLogPath) {
     }
 }
 
+# Logcat can interleave records emitted from the instrumentation and main threads.
+# Reattach calculation-scoped events to the iteration where that calculation was scheduled
+# instead of relying only on the surrounding scenario marker order.
+$iterationByCalculationId = @{}
+foreach ($record in $records) {
+    if (
+        $record.event -eq "scheduled" -and
+        -not [string]::IsNullOrWhiteSpace($record.calculationId) -and
+        -not [string]::IsNullOrWhiteSpace($record.batch) -and
+        -not [string]::IsNullOrWhiteSpace($record.iteration)
+    ) {
+        $iterationByCalculationId[$record.calculationId] = @{
+            batch = $record.batch
+            iteration = $record.iteration
+        }
+    }
+}
+foreach ($record in $records) {
+    if (
+        -not [string]::IsNullOrWhiteSpace($record.calculationId) -and
+        $iterationByCalculationId.ContainsKey($record.calculationId)
+    ) {
+        $owner = $iterationByCalculationId[$record.calculationId]
+        $record.batch = $owner.batch
+        $record.iteration = $owner.iteration
+    }
+}
+
 $csvPath = Join-Path $resolvedOutputDirectory "events.csv"
 $records |
     Select-Object timestamp, pid, tid, level, tag, event, runId, batch, iteration,
