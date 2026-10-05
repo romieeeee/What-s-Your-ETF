@@ -9,7 +9,12 @@ import javax.inject.Inject
 import kotlin.math.roundToLong
 import timber.log.Timber
 
-class CalculateBacktestUseCase @Inject constructor() {
+class CalculateBacktestUseCase private constructor(
+    private val defaultReferenceDate: LocalDate?
+) {
+
+    @Inject
+    constructor() : this(defaultReferenceDate = null)
 
     data class Result(
         val points: List<BacktestPoint>,
@@ -24,7 +29,7 @@ class CalculateBacktestUseCase @Inject constructor() {
         investmentAmount: Long,
         investmentType: InvestmentType,
         periodMonths: Int,
-        referenceDate: LocalDate = LocalDate.now()
+        referenceDate: LocalDate = defaultReferenceDate ?: LocalDate.now()
     ): Result {
         val startedAtNanos = System.nanoTime()
         Timber.tag(SIMULATION_PERF_TAG).d(
@@ -271,10 +276,13 @@ class CalculateBacktestUseCase @Inject constructor() {
         )
     }
 
-    private companion object {
-        const val SIMULATION_PERF_TAG = "SimulationPerf"
-        const val MAX_CHART_POINT_COUNT = 120
-        const val NANOS_PER_MILLISECOND = 1_000_000.0
+    companion object {
+        fun withReferenceDate(referenceDate: LocalDate): CalculateBacktestUseCase =
+            CalculateBacktestUseCase(defaultReferenceDate = referenceDate)
+
+        private const val SIMULATION_PERF_TAG = "SimulationPerf"
+        private const val MAX_CHART_POINT_COUNT = 120
+        private const val NANOS_PER_MILLISECOND = 1_000_000.0
     }
 }
 
