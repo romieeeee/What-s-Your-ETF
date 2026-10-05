@@ -60,4 +60,34 @@ class CalculateBacktestUseCaseTest {
         // then
         assertEquals("2023-10-02", result.points.first().date)
     }
+
+    @Test
+    fun `생성자에 고정한 기준일을 기본 계산에 사용한다`() {
+        // given
+        val fixedUseCase = CalculateBacktestUseCase.withReferenceDate(LocalDate.of(2026, 10, 2))
+        val portfolio = listOf(Portfolio("TEST", "테스트 ETF", 100))
+        val priceHistory = EtfPriceHistory(
+            ticker = "TEST",
+            content = listOf(
+                EtfPricePoint("2023-10-01", 9_900L, 0.0),
+                EtfPricePoint("2023-10-02", 10_000L, 1.0),
+                EtfPricePoint("2026-10-02", 20_000L, 1.0)
+            ),
+            totalElements = 3,
+            totalPages = 1,
+            last = true
+        )
+
+        // when
+        val result = fixedUseCase(
+            portfolios = portfolio,
+            priceHistories = mapOf("TEST" to priceHistory),
+            investmentAmount = 10_000_000L,
+            investmentType = InvestmentType.LUMP_SUM,
+            periodMonths = 36
+        )
+
+        // then
+        assertEquals("2023-10-02", result.points.first().date)
+    }
 }

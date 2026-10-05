@@ -2,6 +2,7 @@ package com.d102.wye.performance
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.d102.wye.data.repository.fake.FakePerformanceData
 import com.d102.wye.data.repository.fake.FakeEtfRepository
 import com.d102.wye.data.repository.fake.FakePortfolioRepository
 import com.d102.wye.data.repository.fake.FakeSimulationRepository
@@ -42,28 +43,71 @@ class SimulationPerformanceInstrumentedTest {
 
         val warmupCount = arguments.getString(ARG_WARMUP_COUNT)?.toIntOrNull() ?: 5
         val measurementCount = arguments.getString(ARG_MEASUREMENT_COUNT)?.toIntOrNull() ?: 20
+        val runId = arguments.getString(ARG_RUN_ID) ?: "manual"
         val viewModel = createConfiguredViewModel()
         val driver = SimulationAmountInputDriver()
 
-        repeat(warmupCount) { index ->
-            replayAndAwait(viewModel, driver, inputIntervalMillis)
-            Timber.tag(PERFORMANCE_TAG).d(
-                "scenario_iteration | batch=warmup | iteration=%d | inputIntervalMs=%d",
-                index + 1,
-                inputIntervalMillis
-            )
-        }
+        Timber.tag(PERFORMANCE_TAG).d(
+            "scenario_run | phase=started | runId=%s | inputIntervalMs=%d | warmupCount=%d | measurementCount=%d",
+            runId,
+            inputIntervalMillis,
+            warmupCount,
+            measurementCount
+        )
 
-        repeat(measurementCount) { index ->
-            replayAndAwait(viewModel, driver, inputIntervalMillis)
-            Timber.tag(PERFORMANCE_TAG).d(
-                "scenario_iteration | batch=measurement | iteration=%d | inputIntervalMs=%d",
-                index + 1,
-                inputIntervalMillis
-            )
-        }
+        runBatch(
+            batch = "warmup",
+            count = warmupCount,
+            runId = runId,
+            inputIntervalMillis = inputIntervalMillis,
+            viewModel = viewModel,
+            driver = driver
+        )
+        runBatch(
+            batch = "measurement",
+            count = measurementCount,
+            runId = runId,
+            inputIntervalMillis = inputIntervalMillis,
+            viewModel = viewModel,
+            driver = driver
+        )
+
+        Timber.tag(PERFORMANCE_TAG).d(
+            "scenario_run | phase=finished | runId=%s",
+            runId
+        )
 
         assertTrue(viewModel.simulationState.value is UiState.Success)
+    }
+
+    private suspend fun runBatch(
+        batch: String,
+        count: Int,
+        runId: String,
+        inputIntervalMillis: Long,
+        viewModel: SimulationViewModel,
+        driver: SimulationAmountInputDriver,
+    ) {
+        repeat(count) { index ->
+            val iteration = index + 1
+            Timber.tag(PERFORMANCE_TAG).d(
+                "scenario_iteration | phase=started | runId=%s | batch=%s | iteration=%d | inputIntervalMs=%d",
+                runId,
+                batch,
+                iteration,
+                inputIntervalMillis
+            )
+            val startedAtNanos = System.nanoTime()
+            replayAndAwait(viewModel, driver, inputIntervalMillis)
+            Timber.tag(PERFORMANCE_TAG).d(
+                "scenario_iteration | phase=finished | runId=%s | batch=%s | iteration=%d | inputIntervalMs=%d | durationMs=%.3f",
+                runId,
+                batch,
+                iteration,
+                inputIntervalMillis,
+                elapsedMillis(startedAtNanos)
+            )
+        }
     }
 
     private suspend fun createConfiguredViewModel(): SimulationViewModel {
@@ -73,7 +117,9 @@ class SimulationPerformanceInstrumentedTest {
             portfolioRepository = FakePortfolioRepository(),
             etfRepository = FakeEtfRepository(),
             runSimulation = RunSimulationUseCase(
-                calculateBacktest = CalculateBacktestUseCase(),
+                calculateBacktest = CalculateBacktestUseCase.withReferenceDate(
+                    FakePerformanceData.referenceDate
+                ),
                 calculateWeightedFundamentals = CalculateWeightedFundamentalsUseCase()
             ),
             calculatePortfolioChart = CalculatePortfolioChartUseCase(),
@@ -128,13 +174,18 @@ class SimulationPerformanceInstrumentedTest {
         }
     }
 
+    private fun elapsedMillis(startedAtNanos: Long): Double =
+        (System.nanoTime() - startedAtNanos) / NANOS_PER_MILLISECOND
+
     private companion object {
         const val PERFORMANCE_TAG = "SimulationPerf"
         const val ARG_ENABLED = "runSimulationPerformance"
         const val ARG_INPUT_INTERVAL_MILLIS = "inputIntervalMillis"
         const val ARG_WARMUP_COUNT = "warmupCount"
         const val ARG_MEASUREMENT_COUNT = "measurementCount"
+        const val ARG_RUN_ID = "runId"
         const val DEBOUNCE_SETTLE_MILLIS = 350L
         const val RESULT_TIMEOUT_MILLIS = 10_000L
+        const val NANOS_PER_MILLISECOND = 1_000_000.0
     }
 }
