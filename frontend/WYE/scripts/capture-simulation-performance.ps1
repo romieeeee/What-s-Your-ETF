@@ -41,7 +41,7 @@ $logcatArgs = @($deviceArgs + @("logcat", "-d", "-v", "epoch", "SimulationPerf:D
 & $adbPath @logcatArgs | Set-Content -LiteralPath $rawPath -Encoding utf8
 
 $records = Get-Content -LiteralPath $rawPath | ForEach-Object {
-    if ($_ -match '^(?<timestamp>\d+\.\d+)\s+(?<pid>\d+)\s+(?<tid>\d+)\s+(?<level>[A-Z])\s+(?<tag>[^:]+):\s*(?<message>.*)$') {
+    if ($_ -match '^\s*(?<timestamp>\d+\.\d+)\s+(?<pid>\d+)\s+(?<tid>\d+)\s+(?<level>[A-Z])\s+(?<tag>[^:]+):\s*(?<message>.*)$') {
         $message = $Matches.message
         [pscustomobject]@{
             timestamp = $Matches.timestamp
