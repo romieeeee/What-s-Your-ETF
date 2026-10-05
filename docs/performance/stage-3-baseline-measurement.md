@@ -2,7 +2,7 @@
 
 ## 현재 상태
 
-공식 Baseline을 반복 수집하기 위한 실행·검증·집계 자동화를 구성했다. 실제 측정값은 UI에서 관찰한 대표 입력 간격을 확정한 뒤 기록한다.
+공식 Baseline을 반복 수집하기 위한 실행·검증·집계 자동화를 구성했다. 실제 UI 입력을 3회 관찰해 대표 입력 간격을 `227ms`로 확정했다.
 
 ## 측정 명령
 
@@ -11,7 +11,7 @@
 ```powershell
 cd frontend/WYE
 ./scripts/run-simulation-baseline.ps1 `
-  -InputIntervalMillis <UI에서 관찰한 대표값> `
+  -InputIntervalMillis 227 `
   -WarmupCount 5 `
   -MeasurementCount 20
 ```
@@ -50,7 +50,7 @@ cd frontend/WYE
 
 ## 공식 측정 전 남은 조건
 
-- [ ] 실제 UI 입력 간격을 3회 관찰하고 대표값 확정
+- [x] 실제 UI 입력 간격을 3회 관찰하고 대표값 `227ms` 확정
 - [ ] 자동화 변경을 커밋해 Before SHA 고정
 - [ ] 동일 에뮬레이터/API Level에서 warm-up 5회, 본 측정 20회 이상 실행
 - [ ] 원자료와 요약값 대조

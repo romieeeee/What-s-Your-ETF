@@ -26,6 +26,20 @@ Debug Fake Repository는 실행 날짜와 관계없이 위 기준일을 사용�
 
 입력 간격은 실제 UI 관찰 결과를 instrumentation argument로 전달한다. 가상 시간은 driver 순서와 동시성 검증에만 사용하며 성능 수치로 사용하지 않는다.
 
+### 실제 UI 입력 간격
+
+2026-10-05에 동일한 에뮬레이터와 입력 조건에서 투자금 `10000`을 직접 입력했다. 정상 3회의 인접 키 입력 간격 12개는 다음과 같다.
+
+```text
+1회차: 299, 169, 169, 157ms
+2회차: 415, 218, 179, 320ms
+3회차: 340, 235, 193, 469ms
+```
+
+전체 간격의 중앙값은 `226.5ms`이며 instrumentation 정수 인자로 반올림한 `227ms`를 대표 입력 간격으로 사용한다. 평균 `263.6ms`보다 중앙값을 선택해 간헐적인 긴 입력 간격의 영향을 줄였다.
+
+마지막 입력 전에 각각 `1764ms`, `1370ms`가 지연된 두 회차는 사용자가 입력 중 멈춘 사실을 확인해 대표값 계산에서 제외했다. 해당 원본 로그는 삭제하지 않고 로컬 측정 근거로 보관한다.
+
 ## 검증 항목
 
 - 동일 fixture와 동일 입력은 동일한 `SimulationUiModel`을 생성한다.
@@ -42,12 +56,12 @@ Debug Fake Repository는 실행 날짜와 관계없이 위 기준일을 사용�
 .\gradlew.bat connectedDebugAndroidTest `
   -Pandroid.testInstrumentationRunnerArguments.class=com.d102.wye.performance.SimulationPerformanceInstrumentedTest `
   -Pandroid.testInstrumentationRunnerArguments.runSimulationPerformance=true `
-  -Pandroid.testInstrumentationRunnerArguments.inputIntervalMillis=<UI에서 관찰한 값> `
+  -Pandroid.testInstrumentationRunnerArguments.inputIntervalMillis=227 `
   -Pandroid.testInstrumentationRunnerArguments.warmupCount=5 `
   -Pandroid.testInstrumentationRunnerArguments.measurementCount=20
 ```
 
-`inputIntervalMillis`는 실제 UI 관찰 전에는 확정하지 않는다.
+`inputIntervalMillis`는 실제 UI 관찰에서 얻은 중앙값을 반올림한 `227ms`로 고정한다.
 
 ## 원자료 저장
 
@@ -67,7 +81,7 @@ Debug Fake Repository는 실행 날짜와 관계없이 위 기준일을 사용�
 - [x] 실제 Android runtime 측정 harness
 - [x] 동일 결과 및 최신 입력 우선 처리 테스트
 - [x] 원본 로그와 CSV 저장 스크립트
-- [ ] 실제 UI 입력 간격 3회 관찰 및 대표값 결정
+- [x] 실제 UI 입력 간격 3회 관찰 및 대표값 `227ms` 결정
 - [ ] 사전 작업 commit SHA를 Before SHA로 기록
 - [ ] 에뮬레이터/API Level/build variant를 측정 보고서에 기록
 
