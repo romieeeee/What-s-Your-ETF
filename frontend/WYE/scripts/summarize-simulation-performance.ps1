@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)]
     [string]$RawLogPath,
 
@@ -91,7 +91,7 @@ $currentBatch = $null
 $currentIteration = $null
 
 foreach ($line in Get-Content -LiteralPath $resolvedRawLogPath) {
-    if ($line -notmatch '^(?<timestamp>\d+\.\d+)\s+(?<pid>\d+)\s+(?<tid>\d+)\s+(?<level>[A-Z])\s+(?<tag>[^:]+):\s*(?<message>.*)$') {
+    if ($line -notmatch '^\s*(?<timestamp>\d+\.\d+)\s+(?<pid>\d+)\s+(?<tid>\d+)\s+(?<level>[A-Z])\s+(?<tag>[^:]+):\s*(?<message>.*)$') {
         continue
     }
 

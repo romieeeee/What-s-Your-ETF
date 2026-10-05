@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)]
     [ValidateRange(0, 5000)]
     [int]$InputIntervalMillis,
@@ -92,14 +92,7 @@ $metadata = [ordered]@{
 $metadata | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $metadataPath -Encoding utf8
 
 & $adbPath @deviceArgs logcat -c
-$logcatArguments = @($deviceArgs + @("logcat", "-v", "epoch", "SimulationPerf:D", "*:S"))
-$logcatProcess = Start-Process `
-    -FilePath $adbPath `
-    -ArgumentList $logcatArguments `
-    -RedirectStandardOutput $rawLogPath `
-    -RedirectStandardError $logcatErrorPath `
-    -WindowStyle Hidden `
-    -PassThru
+$logcatArguments = @($deviceArgs + @("logcat", "-d", "-v", "epoch", "SimulationPerf:D", "*:S"))
 
 $gradleExitCode = -1
 try {
@@ -121,10 +114,8 @@ try {
         Pop-Location
     }
 } finally {
-    if (-not $logcatProcess.HasExited) {
-        Stop-Process -Id $logcatProcess.Id
-        $logcatProcess.WaitForExit()
-    }
+    & $adbPath @logcatArguments 2> $logcatErrorPath |
+        Set-Content -LiteralPath $rawLogPath -Encoding utf8
 
     $metadata.gradleExitCode = $gradleExitCode
     $metadata.status = if ($gradleExitCode -eq 0) { "test_passed" } else { "test_failed" }
