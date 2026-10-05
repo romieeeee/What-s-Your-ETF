@@ -18,6 +18,25 @@
 
 $ErrorActionPreference = "Stop"
 
+$javaHomeCandidates = @(
+    $env:JAVA_HOME
+    $env:ANDROID_STUDIO_JDK
+    (Join-Path ${env:ProgramFiles} "Android\Android Studio\jbr")
+    (Join-Path $env:LOCALAPPDATA "Programs\Android Studio\jbr")
+) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
+$resolvedJavaHome = $javaHomeCandidates |
+    Where-Object { Test-Path -LiteralPath (Join-Path $_ "bin\java.exe") } |
+    Select-Object -First 1
+if ([string]::IsNullOrWhiteSpace($resolvedJavaHome)) {
+    throw "A valid JDK was not found. Set JAVA_HOME or install Android Studio with its bundled JBR."
+}
+if ($env:JAVA_HOME -ne $resolvedJavaHome) {
+    Write-Host "Using Java from Android Studio JBR: $resolvedJavaHome"
+}
+$env:JAVA_HOME = $resolvedJavaHome
+$javaExecutable = Join-Path $resolvedJavaHome "bin\java.exe"
+$javaVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($javaExecutable).ProductVersion
+
 $wyeRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\.."))
 $gradlePath = Join-Path $wyeRoot "gradlew.bat"
@@ -75,6 +94,8 @@ $metadata = [ordered]@{
     branch = $branchName
     workingTreeDirty = $dirtyFiles.Count -gt 0
     buildVariant = "debug"
+    javaHome = $resolvedJavaHome
+    javaVersion = $javaVersion
     inputIntervalMillis = $InputIntervalMillis
     warmupCount = $WarmupCount
     measurementCount = $MeasurementCount
