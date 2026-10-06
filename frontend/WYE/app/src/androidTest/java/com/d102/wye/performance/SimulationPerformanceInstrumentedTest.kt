@@ -136,8 +136,7 @@ class SimulationPerformanceInstrumentedTest {
         val exportedTracePath = "$TRACE_EXPORT_DIRECTORY/$traceFileName"
         val exportedTraceBytes = exportTraceForHost(
             traceFile = traceFile,
-            exportedTracePath = exportedTracePath,
-            packageName = context.packageName
+            exportedTracePath = exportedTracePath
         )
         Timber.tag(PERFORMANCE_TAG).d(
             "method_trace | phase=finished | file=%s | bytes=%d | exportedFile=%s | exportedBytes=%d",
@@ -151,13 +150,27 @@ class SimulationPerformanceInstrumentedTest {
     private fun exportTraceForHost(
         traceFile: File,
         exportedTracePath: String,
-        packageName: String,
     ): Long {
-        val command =
-            "run-as $packageName cat ${traceFile.absolutePath} > $exportedTracePath " +
-                "&& stat -c %s $exportedTracePath"
-        val output = InstrumentationRegistry.getInstrumentation().uiAutomation
-            .executeShellCommand(command)
+        val uiAutomation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        val descriptors = uiAutomation.executeShellCommandRw(
+            "/system/bin/dd of=$exportedTracePath"
+        )
+        check(descriptors.size >= 2) { "Shell command did not provide stdin and stdout pipes." }
+        val shellOutput = ParcelFileDescriptor.AutoCloseInputStream(descriptors[0])
+        val shellInput = ParcelFileDescriptor.AutoCloseOutputStream(descriptors[1])
+        try {
+            traceFile.inputStream().use { input ->
+                input.copyTo(shellInput)
+            }
+            shellInput.close()
+            shellOutput.readBytes()
+        } finally {
+            shellInput.close()
+            shellOutput.close()
+        }
+
+        val output = uiAutomation
+            .executeShellCommand("stat -c %s $exportedTracePath")
             .use { descriptor ->
                 ParcelFileDescriptor.AutoCloseInputStream(descriptor)
                     .bufferedReader()
