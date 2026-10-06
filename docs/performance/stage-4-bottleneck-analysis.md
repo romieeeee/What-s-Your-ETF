@@ -60,11 +60,66 @@ method sampling은 앱 실행에 Profiler 오버헤드를 추가한다. 따라�
 
 병목은 trace의 호출 위치, 기존 단계별 로그, 반복 측정의 자연 변동을 함께 근거로 판단한다.
 
+## 진단 결과
+
+`trace-20261006-185514`를 Pixel 7 AVD(Android 15, API 35)에서 입력 간격 `227ms`, warm-up 5회, 본 측정 3회 조건으로 수집했다. trace에는 buffer overflow가 없었고(`data-file-overflow=false`), Main Thread의 호출 경로를 `Thread Time` 기준으로 확인했다.
+
+### Main Thread 호출 경로
+
+Top Down에서 다음 호출 경로가 확인됐다.
+
+```text
+SimulationViewModel.triggerCalculation
+  → RunSimulationUseCase.invoke
+    → CalculateBacktestUseCase.invoke
+      → calcLumpSum
+      → CollectionsKt.intersect
+```
+
+`SimulationViewModel.triggerCalculation()`은 `viewModelScope.launch`에서 실행되고, `runSimulation()` 호출 전 별도의 dispatcher 전환이 없다. `RunSimulationUseCase`와 `CalculateBacktestUseCase`에도 `withContext(Dispatchers.Default)` 또는 이에 준하는 CPU dispatcher 경계가 없다. 따라서 가격 데이터 전처리와 백테스트 계산이 Main Thread에서 동기 실행되는 것을 trace와 코드에서 함께 확인했다.
+
+### 함수별 Thread Time
+
+| 함수 | Total | Main Thread 대비 | 해석 |
+|---|---:|---:|---|
+| `RunSimulationUseCase.invoke` | `12,806μs` | `21.19%` | 시뮬레이션 도메인 계산 전체 |
+| `CalculateBacktestUseCase.invoke` | `11,559μs` | `19.13%` | 백테스트 계산 |
+| `calcLumpSum` | `3,679μs` | `6.09%` | 거치식 일별 평가액 계산 |
+| `CollectionsKt.intersect` | `2,738μs` | `4.53%` | ETF별 거래일 교집합 생성 |
+| `SimulationResult.toUiModel` | `931μs` | `1.54%` | 첫 번째 최적화 대상으로 보기 어려움 |
+
+이 값은 sampling trace의 진단 수치이므로 공식 Baseline과 절대 시간을 직접 비교하지 않는다. 다만 공식 Baseline에서도 계산 중앙값 `19.248ms`, backtest 중앙값 `11.586ms`가 관찰되어, Main Thread에서 도메인 계산이 수행된다는 방향은 서로 일치한다.
+
+### 계측 로그 오버헤드
+
+Bottom Up에서 Timber `d()` 호출 경로의 Total은 `28,315μs`(`46.85%`), `Log.println_native()`의 Self는 `23,249μs`(`38.47%`)였다. 이는 병목을 관찰하기 위해 추가한 Debug 계측 로그의 비용이 포함된 결과다. 따라서 Timber와 Android Log를 실제 시뮬레이션 알고리즘의 첫 번째 병목으로 선택하지 않는다.
+
+### 재현하지 못한 항목
+
+공식 Baseline에서 관찰한 계산 최대값 `91.181ms`는 본 측정 3회의 trace에서 재현되지 않았다. 따라서 해당 최대값을 특정 함수의 비용으로 단정하지 않는다. 실제 프레임 시간이나 dropped frame도 이번 harness에서 직접 측정하지 않았으므로, 현재 근거만으로 사용자에게 jank가 발생했다고 확정하지 않는다.
+
+## 첫 번째 병목 가설과 다음 변경 범위
+
+첫 번째 병목 가설은 다음과 같다.
+
+> CPU 중심의 시뮬레이션 도메인 계산이 Main Thread에서 실행되어 UI 응답성을 저하시킬 위험이 있다.
+
+다음 최적화에서는 계산 부분에만 주입 가능한 CPU dispatcher 경계를 두고, 입력 처리와 `UiState` 갱신은 Main Thread에 유지한다. 이 변경은 계산 알고리즘 자체를 빠르게 만드는 것이 아니라 Main Thread 점유를 격리하는 작업으로 정의한다.
+
+다음 항목은 첫 번째 변경에서 제외한다.
+
+- `300ms` debounce 변경: 입력 정책과 UX 판단이 필요한 별도 문제다.
+- 날짜 교집합 또는 `calcLumpSum` 알고리즘 변경: dispatcher 변경과 효과를 분리해 측정하기 위해 후속 후보로 남긴다.
+- Timber 제거를 성능 개선으로 간주: Debug 계측 비용이며 실제 도메인 알고리즘 개선이 아니다.
+- 실제 jank 개선 주장: 표준 frame metric을 측정하지 않았으므로 주장 범위에서 제외한다.
+
+다음 변경의 성공 조건은 결과 정확성과 최신 입력 보장이 유지되고, trace에서 도메인 계산이 Main Thread가 아닌 주입한 CPU dispatcher에서 실행되며, 공식 측정 지표가 유의하게 악화되지 않는 것이다.
+
 ## 완료 조건
 
-- [ ] 진단용 trace 파일 수집
-- [ ] Main Thread 실행 여부 확인
-- [ ] 계산 sample이 집중된 함수 확인
-- [ ] cancellation 가설 유지 또는 기각
-- [ ] 첫 번째 병목 가설을 코드 위치와 연결해 문서화
-- [ ] 변경할 코드 하나와 변경하지 않을 대안 기록
+- [x] 진단용 trace 파일 수집
+- [x] Main Thread 실행 여부 확인
+- [x] 계산 sample이 집중된 함수 확인
+- [x] cancellation 가설 유지 또는 기각
+- [x] 첫 번째 병목 가설을 코드 위치와 연결해 문서화
+- [x] 변경할 코드 하나와 변경하지 않을 대안 기록
