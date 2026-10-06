@@ -90,7 +90,7 @@ $logcatErrorPath = Join-Path $resolvedOutputDirectory "logcat-error.log"
 $gradleLogPath = Join-Path $resolvedOutputDirectory "gradle.log"
 $metadataPath = Join-Path $resolvedOutputDirectory "metadata.json"
 $localTracePath = Join-Path $resolvedOutputDirectory $traceFileName
-$remoteTracePath = "/sdcard/Android/data/com.d102.wye/files/$traceFileName"
+$remoteTracePath = "/data/local/tmp/$traceFileName"
 
 $metadata = [ordered]@{
     runId = $runId

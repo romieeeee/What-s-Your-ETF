@@ -1,6 +1,7 @@
 package com.d102.wye.performance
 
 import android.os.Debug
+import android.os.ParcelFileDescriptor
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.d102.wye.data.repository.fake.FakePerformanceData
@@ -107,6 +108,9 @@ class SimulationPerformanceInstrumentedTest {
         require(File(traceFileName).name == traceFileName) {
             "$ARG_TRACE_FILE_NAME must be a file name without directories."
         }
+        require(traceFileName.matches(TRACE_FILE_NAME_PATTERN)) {
+            "$ARG_TRACE_FILE_NAME contains unsupported characters."
+        }
         require(traceFileName.endsWith(TRACE_FILE_EXTENSION)) {
             "$ARG_TRACE_FILE_NAME must end with $TRACE_FILE_EXTENSION."
         }
@@ -131,11 +135,33 @@ class SimulationPerformanceInstrumentedTest {
         } finally {
             Debug.stopMethodTracing()
         }
+        val exportedTracePath = "$TRACE_EXPORT_DIRECTORY/$traceFileName"
+        val exportedTraceBytes = exportTraceForHost(traceFile, exportedTracePath)
         Timber.tag(PERFORMANCE_TAG).d(
-            "method_trace | phase=finished | file=%s | bytes=%d",
+            "method_trace | phase=finished | file=%s | bytes=%d | exportedFile=%s | exportedBytes=%d",
             traceFile.absolutePath,
-            traceFile.length()
+            traceFile.length(),
+            exportedTracePath,
+            exportedTraceBytes
         )
+    }
+
+    private fun exportTraceForHost(traceFile: File, exportedTracePath: String): Long {
+        val command = "cp ${traceFile.absolutePath} $exportedTracePath && stat -c %s $exportedTracePath"
+        val output = InstrumentationRegistry.getInstrumentation().uiAutomation
+            .executeShellCommand(command)
+            .use { descriptor ->
+                ParcelFileDescriptor.AutoCloseInputStream(descriptor)
+                    .bufferedReader()
+                    .use { it.readText() }
+            }
+            .trim()
+        val exportedBytes = output.lineSequence().lastOrNull()?.toLongOrNull()
+            ?: error("Failed to export method trace: $output")
+        check(exportedBytes == traceFile.length()) {
+            "Exported trace size mismatch: source=${traceFile.length()}, exported=$exportedBytes"
+        }
+        return exportedBytes
     }
 
     private suspend fun runBatch(
@@ -250,5 +276,7 @@ class SimulationPerformanceInstrumentedTest {
         const val TRACE_BUFFER_SIZE_BYTES = 32 * 1024 * 1024
         const val TRACE_SAMPLE_INTERVAL_MICROS = 1_000
         const val TRACE_FILE_EXTENSION = ".trace"
+        const val TRACE_EXPORT_DIRECTORY = "/data/local/tmp"
+        val TRACE_FILE_NAME_PATTERN = Regex("[A-Za-z0-9._-]+\\.trace")
     }
 }
