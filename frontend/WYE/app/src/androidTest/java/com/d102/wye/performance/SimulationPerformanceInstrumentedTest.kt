@@ -225,7 +225,8 @@ class SimulationPerformanceInstrumentedTest {
                 calculateBacktest = CalculateBacktestUseCase.withReferenceDate(
                     FakePerformanceData.referenceDate
                 ),
-                calculateWeightedFundamentals = CalculateWeightedFundamentalsUseCase()
+                calculateWeightedFundamentals = CalculateWeightedFundamentalsUseCase(),
+                defaultDispatcher = Dispatchers.Default,
             ),
             calculatePortfolioChart = CalculatePortfolioChartUseCase(),
             refreshPriceHistoryCache = RefreshPriceHistoryCacheUseCase(
