@@ -116,9 +116,7 @@ class SimulationPerformanceInstrumentedTest {
         }
 
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val traceDirectory = context.getExternalFilesDir(null)
-            ?: error("External files directory is unavailable.")
-        val traceFile = File(traceDirectory, traceFileName)
+        val traceFile = File(context.filesDir, traceFileName)
 
         Timber.tag(PERFORMANCE_TAG).d(
             "method_trace | phase=started | file=%s | intervalUs=%d",
@@ -136,7 +134,11 @@ class SimulationPerformanceInstrumentedTest {
             Debug.stopMethodTracing()
         }
         val exportedTracePath = "$TRACE_EXPORT_DIRECTORY/$traceFileName"
-        val exportedTraceBytes = exportTraceForHost(traceFile, exportedTracePath)
+        val exportedTraceBytes = exportTraceForHost(
+            traceFile = traceFile,
+            exportedTracePath = exportedTracePath,
+            packageName = context.packageName
+        )
         Timber.tag(PERFORMANCE_TAG).d(
             "method_trace | phase=finished | file=%s | bytes=%d | exportedFile=%s | exportedBytes=%d",
             traceFile.absolutePath,
@@ -146,8 +148,14 @@ class SimulationPerformanceInstrumentedTest {
         )
     }
 
-    private fun exportTraceForHost(traceFile: File, exportedTracePath: String): Long {
-        val command = "cp ${traceFile.absolutePath} $exportedTracePath && stat -c %s $exportedTracePath"
+    private fun exportTraceForHost(
+        traceFile: File,
+        exportedTracePath: String,
+        packageName: String,
+    ): Long {
+        val command =
+            "run-as $packageName cat ${traceFile.absolutePath} > $exportedTracePath " +
+                "&& stat -c %s $exportedTracePath"
         val output = InstrumentationRegistry.getInstrumentation().uiAutomation
             .executeShellCommand(command)
             .use { descriptor ->
