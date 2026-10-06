@@ -58,7 +58,8 @@ class SimulationPerformanceScenarioTest {
             etfRepository = FakeEtfRepository(),
             runSimulation = RunSimulationUseCase(
                 calculateBacktest = CalculateBacktestUseCase(),
-                calculateWeightedFundamentals = CalculateWeightedFundamentalsUseCase()
+                calculateWeightedFundamentals = CalculateWeightedFundamentalsUseCase(),
+                defaultDispatcher = mainDispatcherRule.dispatcher,
             ),
             calculatePortfolioChart = CalculatePortfolioChartUseCase(),
             refreshPriceHistoryCache = RefreshPriceHistoryCacheUseCase(

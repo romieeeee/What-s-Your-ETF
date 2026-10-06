@@ -1,16 +1,54 @@
 package com.d102.wye.domain.usecase.simulation
 
+import com.d102.wye.domain.common.BaseResult
 import com.d102.wye.domain.model.EtfFundamentals
 import com.d102.wye.domain.model.EtfPriceHistory
 import com.d102.wye.domain.model.EtfPricePoint
 import com.d102.wye.domain.model.Portfolio
 import com.d102.wye.domain.state.InvestmentType
 import java.time.LocalDate
+import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SimulationUseCaseTest {
+
+    @Test
+    fun runSimulation_usesInjectedDispatcherAndPreservesResult() = runTest {
+        val today = LocalDate.now()
+        val dispatcher = RecordingDispatcher(StandardTestDispatcher(testScheduler))
+        val useCase = RunSimulationUseCase(
+            calculateBacktest = CalculateBacktestUseCase.withReferenceDate(today),
+            calculateWeightedFundamentals = CalculateWeightedFundamentalsUseCase(),
+            defaultDispatcher = dispatcher,
+        )
+
+        val result = useCase(
+            RunSimulationUseCase.Params(
+                portfolios = listOf(
+                    Portfolio(ticker = "AAA", name = "Alpha ETF", weightPercent = 100)
+                ),
+                investmentAmount = 10_000L,
+                investmentType = InvestmentType.LUMP_SUM,
+                periodMonths = 3,
+                priceHistories = mapOf(
+                    "AAA" to priceHistory(
+                        ticker = "AAA",
+                        dates = listOf(today.minusMonths(1).toString(), today.toString()),
+                        prices = listOf(100L, 200L),
+                    )
+                ),
+            )
+        )
+
+        assertTrue(dispatcher.dispatchCount > 0)
+        assertTrue(result is BaseResult.Success)
+        assertEquals(20_000L, (result as BaseResult.Success).data.estimatedFinalValue)
+    }
 
     @Test
     fun expectedDividend_calculatesWeightedAnnualAndMonthlyDividend() {
@@ -118,4 +156,16 @@ class SimulationUseCaseTest {
         totalPages = 1,
         last = true
     )
+
+    private class RecordingDispatcher(
+        private val delegate: CoroutineDispatcher,
+    ) : CoroutineDispatcher() {
+        var dispatchCount: Int = 0
+            private set
+
+        override fun dispatch(context: CoroutineContext, block: Runnable) {
+            dispatchCount++
+            delegate.dispatch(context, block)
+        }
+    }
 }
