@@ -9,6 +9,12 @@
     [ValidateRange(1, 1000)]
     [int]$MeasurementCount = 20,
 
+    [ValidateRange(1, 6)]
+    [int]$EtfCount = 6,
+
+    [ValidateRange(1, 36)]
+    [int]$PeriodMonths = 36,
+
     [string]$DeviceSerial = "",
 
     [string]$OutputDirectory = "",
@@ -99,6 +105,8 @@ $metadata = [ordered]@{
     inputIntervalMillis = $InputIntervalMillis
     warmupCount = $WarmupCount
     measurementCount = $MeasurementCount
+    etfCount = $EtfCount
+    periodMonths = $PeriodMonths
     device = [ordered]@{
         serial = $DeviceSerial
         model = (& $adbPath @deviceArgs shell getprop ro.product.model).Trim()
@@ -124,6 +132,8 @@ try {
         "-Pandroid.testInstrumentationRunnerArguments.inputIntervalMillis=$InputIntervalMillis",
         "-Pandroid.testInstrumentationRunnerArguments.warmupCount=$WarmupCount",
         "-Pandroid.testInstrumentationRunnerArguments.measurementCount=$MeasurementCount",
+        "-Pandroid.testInstrumentationRunnerArguments.etfCount=$EtfCount",
+        "-Pandroid.testInstrumentationRunnerArguments.periodMonths=$PeriodMonths",
         "-Pandroid.testInstrumentationRunnerArguments.runId=$runId"
     )
 

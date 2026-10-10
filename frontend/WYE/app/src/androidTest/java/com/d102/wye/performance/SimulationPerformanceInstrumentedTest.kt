@@ -46,18 +46,27 @@ class SimulationPerformanceInstrumentedTest {
 
         val warmupCount = arguments.getString(ARG_WARMUP_COUNT)?.toIntOrNull() ?: 5
         val measurementCount = arguments.getString(ARG_MEASUREMENT_COUNT)?.toIntOrNull() ?: 20
+        val etfCount = arguments.getString(ARG_ETF_COUNT)?.toIntOrNull() ?: DEFAULT_ETF_COUNT
+        val periodMonths = arguments.getString(ARG_PERIOD_MONTHS)?.toIntOrNull() ?: DEFAULT_PERIOD_MONTHS
+        require(etfCount in 1..FakePerformanceData.etfs.size)
+        require(periodMonths in 1..MAX_PERIOD_MONTHS)
         val runId = arguments.getString(ARG_RUN_ID) ?: "manual"
         val captureMethodTrace = arguments.getString(ARG_CAPTURE_METHOD_TRACE) == "true"
         val traceFileName = arguments.getString(ARG_TRACE_FILE_NAME) ?: "$runId.trace"
-        val viewModel = createConfiguredViewModel()
+        val viewModel = createConfiguredViewModel(
+            etfCount = etfCount,
+            periodMonths = periodMonths,
+        )
         val driver = SimulationAmountInputDriver()
 
         Timber.tag(PERFORMANCE_TAG).d(
-            "scenario_run | phase=started | runId=%s | inputIntervalMs=%d | warmupCount=%d | measurementCount=%d",
+            "scenario_run | phase=started | runId=%s | inputIntervalMs=%d | warmupCount=%d | measurementCount=%d | etfCount=%d | periodMonths=%d",
             runId,
             inputIntervalMillis,
             warmupCount,
-            measurementCount
+            measurementCount,
+            etfCount,
+            periodMonths,
         )
 
         runBatch(
@@ -215,7 +224,10 @@ class SimulationPerformanceInstrumentedTest {
         }
     }
 
-    private suspend fun createConfiguredViewModel(): SimulationViewModel {
+    private suspend fun createConfiguredViewModel(
+        etfCount: Int,
+        periodMonths: Int,
+    ): SimulationViewModel {
         val simulationRepository = FakeSimulationRepository()
         val viewModel = SimulationViewModel(
             simulationRepository = simulationRepository,
@@ -234,8 +246,8 @@ class SimulationPerformanceInstrumentedTest {
                 cachePolicy = PriceHistoryCachePolicy()
             )
         )
-        val tickers = listOf("069500", "360750", "133690", "229200", "305720", "091160")
-        val weights = listOf(17, 17, 17, 17, 16, 16)
+        val tickers = FakePerformanceData.etfs.take(etfCount).map { it.ticker }
+        val weights = equalWeights(etfCount)
 
         withContext(Dispatchers.Main.immediate) {
             viewModel.addPortfolioItems(tickers)
@@ -245,7 +257,7 @@ class SimulationPerformanceInstrumentedTest {
             tickers.zip(weights).forEach { (ticker, weight) ->
                 viewModel.updateItemWeight(ticker, weight)
             }
-            viewModel.onPeriodChanged("36")
+            viewModel.onPeriodChanged(periodMonths.toString())
             viewModel.onInvestmentTypeSelected(InvestmentType.LUMP_SUM)
         }
         delay(DEBOUNCE_SETTLE_MILLIS)
@@ -283,12 +295,22 @@ class SimulationPerformanceInstrumentedTest {
     private fun elapsedMillis(startedAtNanos: Long): Double =
         (System.nanoTime() - startedAtNanos) / NANOS_PER_MILLISECOND
 
+    private fun equalWeights(count: Int): List<Int> {
+        val baseWeight = 100 / count
+        val remainder = 100 % count
+        return List(count) { index ->
+            baseWeight + if (index < remainder) 1 else 0
+        }
+    }
+
     private companion object {
         const val PERFORMANCE_TAG = "SimulationPerf"
         const val ARG_ENABLED = "runSimulationPerformance"
         const val ARG_INPUT_INTERVAL_MILLIS = "inputIntervalMillis"
         const val ARG_WARMUP_COUNT = "warmupCount"
         const val ARG_MEASUREMENT_COUNT = "measurementCount"
+        const val ARG_ETF_COUNT = "etfCount"
+        const val ARG_PERIOD_MONTHS = "periodMonths"
         const val ARG_RUN_ID = "runId"
         const val ARG_CAPTURE_METHOD_TRACE = "captureMethodTrace"
         const val ARG_TRACE_FILE_NAME = "traceFileName"
@@ -299,6 +321,9 @@ class SimulationPerformanceInstrumentedTest {
         const val TRACE_SAMPLE_INTERVAL_MICROS = 1_000
         const val TRACE_FILE_EXTENSION = ".trace"
         const val TRACE_EXPORT_DIRECTORY = "/data/local/tmp"
+        const val DEFAULT_ETF_COUNT = 6
+        const val DEFAULT_PERIOD_MONTHS = 36
+        const val MAX_PERIOD_MONTHS = 36
         val TRACE_FILE_NAME_PATTERN = Regex("[A-Za-z0-9._-]+\\.trace")
     }
 }
